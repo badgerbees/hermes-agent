@@ -643,6 +643,12 @@ class DiscordAdapter(BasePlatformAdapter):
                 await self._handle_message(message)
 
             @self._client.event
+            async def on_thread_update(before, after):
+                if not getattr(after, "archived", False):
+                    return
+                await adapter_self._reset_archived_thread_sessions(after)
+
+            @self._client.event
             async def on_voice_state_update(member, before, after):
                 """Track voice channel join/leave events."""
                 # Only track channels where the bot is connected
@@ -2109,6 +2115,41 @@ class DiscordAdapter(BasePlatformAdapter):
             channel_prompt=_channel_prompt,
         )
         await self.handle_message(event)
+
+    async def _reset_archived_thread_sessions(self, thread: Any) -> int:
+        """Reset any stored sessions that belong to an archived Discord thread."""
+        session_store = getattr(self, "_session_store", None)
+        if not session_store:
+            return 0
+
+        thread_id = str(getattr(thread, "id", "") or "").strip()
+        if not thread_id:
+            return 0
+
+        reset_thread_sessions = getattr(session_store, "reset_thread_sessions", None)
+        if not callable(reset_thread_sessions):
+            return 0
+
+        try:
+            reset_count = reset_thread_sessions(thread_id, platform=Platform.DISCORD)
+        except Exception as e:
+            logger.warning(
+                "[%s] Failed to reset archived Discord thread %s: %s",
+                self.name,
+                thread_id,
+                e,
+                exc_info=True,
+            )
+            return 0
+
+        if reset_count:
+            logger.info(
+                "[%s] Discord thread archived — reset %d session(s) for thread %s",
+                self.name,
+                reset_count,
+                thread_id,
+            )
+        return reset_count
 
     def _resolve_channel_skills(self, channel_id: str, parent_id: str | None = None) -> list[str] | None:
         """Look up auto-skill bindings for a Discord channel/forum thread.

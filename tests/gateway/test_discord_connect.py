@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from gateway.config import PlatformConfig
+from gateway.config import Platform, PlatformConfig
 
 
 def _ensure_discord_mock():
@@ -190,4 +190,40 @@ async def test_connect_does_not_wait_for_slash_sync(monkeypatch):
 
     created["bot"].tree.allow_finish.set()
     await asyncio.sleep(0)
+    await adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_archived_thread_update_resets_thread_sessions(monkeypatch):
+    adapter = DiscordAdapter(PlatformConfig(enabled=True, token="test-token"))
+
+    monkeypatch.setattr("gateway.status.acquire_scoped_lock", lambda scope, identity, metadata=None: (True, None))
+    monkeypatch.setattr("gateway.status.release_scoped_lock", lambda scope, identity: None)
+
+    intents = SimpleNamespace(message_content=False, dm_messages=False, guild_messages=False, members=False, voice_states=False)
+    monkeypatch.setattr(discord_platform.Intents, "default", lambda: intents)
+
+    created = {}
+
+    def fake_bot_factory(*, command_prefix, intents, proxy=None):
+        created["bot"] = FakeBot(intents=intents, proxy=proxy)
+        return created["bot"]
+
+    monkeypatch.setattr(discord_platform.commands, "Bot", fake_bot_factory)
+    monkeypatch.setattr(adapter, "_resolve_allowed_usernames", AsyncMock())
+
+    session_store = MagicMock()
+    session_store.reset_thread_sessions.return_value = 2
+    adapter.set_session_store(session_store)
+
+    ok = await adapter.connect()
+    assert ok is True
+    assert "on_thread_update" in created["bot"]._events
+
+    before = SimpleNamespace(id="thread-42", archived=False)
+    after = SimpleNamespace(id="thread-42", archived=True)
+    await created["bot"]._events["on_thread_update"](before, after)
+
+    session_store.reset_thread_sessions.assert_called_once_with("thread-42", platform=Platform.DISCORD)
+
     await adapter.disconnect()
