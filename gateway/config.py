@@ -36,6 +36,28 @@ def _coerce_bool(value: Any, default: bool = True) -> bool:
     return is_truthy_value(value, default=default)
 
 
+def _normalize_telegram_reaction_level(value: Any, permissive: bool = False) -> str:
+    """Normalize Telegram reaction levels while preserving the legacy boolean flag."""
+    if value is None:
+        return "off"
+    if isinstance(value, bool):
+        return "extensive" if value else "off"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized:
+            return "off"
+        if normalized in {"off", "ack", "minimal", "extensive"}:
+            return normalized
+        if normalized in {"true", "1", "yes", "on"}:
+            return "extensive"
+        if normalized in {"false", "0", "no"}:
+            return "off"
+        if permissive:
+            return "extensive"
+        return "off"
+    return "extensive" if is_truthy_value(value, default=False) else "off"
+
+
 def _normalize_unauthorized_dm_behavior(value: Any, default: str = "pair") -> str:
     """Normalize unauthorized DM behavior to a supported value."""
     if isinstance(value, str):
@@ -636,8 +658,16 @@ def load_gateway_config() -> GatewayConfig:
                     if isinstance(ignored_threads, list):
                         ignored_threads = ",".join(str(v) for v in ignored_threads)
                     os.environ["TELEGRAM_IGNORED_THREADS"] = str(ignored_threads)
-                if "reactions" in telegram_cfg and not os.getenv("TELEGRAM_REACTIONS"):
-                    os.environ["TELEGRAM_REACTIONS"] = str(telegram_cfg["reactions"]).lower()
+                reaction_level = telegram_cfg.get("reaction_level")
+                if reaction_level is not None:
+                    if not os.getenv("TELEGRAM_REACTION_LEVEL"):
+                        os.environ["TELEGRAM_REACTION_LEVEL"] = _normalize_telegram_reaction_level(reaction_level)
+                elif "reactions" in telegram_cfg:
+                    if not os.getenv("TELEGRAM_REACTION_LEVEL"):
+                        os.environ["TELEGRAM_REACTION_LEVEL"] = _normalize_telegram_reaction_level(
+                            telegram_cfg["reactions"],
+                            permissive=True,
+                        )
                 if "proxy_url" in telegram_cfg and not os.getenv("TELEGRAM_PROXY"):
                     os.environ["TELEGRAM_PROXY"] = str(telegram_cfg["proxy_url"]).strip()
                 if "disable_link_previews" in telegram_cfg:

@@ -300,6 +300,82 @@ class TestLoadGatewayConfig:
 
         assert config.platforms[Platform.TELEGRAM].extra["disable_link_previews"] is True
 
+    def test_bridges_telegram_reaction_level_from_config_yaml(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        config_path = hermes_home / "config.yaml"
+        config_path.write_text(
+            "telegram:\n"
+            "  reaction_level: minimal\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.delenv("TELEGRAM_REACTION_LEVEL", raising=False)
+
+        load_gateway_config()
+
+        import os
+
+        assert os.environ.get("TELEGRAM_REACTION_LEVEL") == "minimal"
+
+    def test_bridges_telegram_legacy_reactions_boolean_alias_from_config_yaml(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        config_path = hermes_home / "config.yaml"
+        config_path.write_text(
+            "telegram:\n"
+            "  reactions: true\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.delenv("TELEGRAM_REACTION_LEVEL", raising=False)
+
+        load_gateway_config()
+
+        import os
+
+        assert os.environ.get("TELEGRAM_REACTION_LEVEL") == "extensive"
+
+    def test_bridges_telegram_legacy_reactions_numeric_alias_from_config_yaml(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        config_path = hermes_home / "config.yaml"
+        config_path.write_text(
+            "telegram:\n"
+            "  reactions: 1\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.delenv("TELEGRAM_REACTION_LEVEL", raising=False)
+
+        load_gateway_config()
+
+        import os
+
+        assert os.environ.get("TELEGRAM_REACTION_LEVEL") == "extensive"
+
+    def test_telegram_reaction_level_env_takes_precedence_over_config(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        hermes_home.mkdir()
+        config_path = hermes_home / "config.yaml"
+        config_path.write_text(
+            "telegram:\n"
+            "  reaction_level: extensive\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("TELEGRAM_REACTION_LEVEL", "ack")
+
+        load_gateway_config()
+
+        import os
+
+        assert os.environ.get("TELEGRAM_REACTION_LEVEL") == "ack"
+
     def test_bridges_telegram_proxy_url_from_config_yaml(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
         hermes_home.mkdir()

@@ -117,6 +117,25 @@ def _strip_mdv2(text: str) -> str:
     return cleaned
 
 
+_TELEGRAM_REACTION_LEVELS = {"off", "ack", "minimal", "extensive"}
+
+
+def _parse_telegram_reaction_level(value: Optional[str], permissive: bool = False) -> Optional[str]:
+    """Normalize a Telegram reaction level string or legacy boolean alias."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized in _TELEGRAM_REACTION_LEVELS:
+        return normalized
+    if normalized in ("true", "1", "yes", "on"):
+        return "extensive"
+    if normalized in ("false", "0", "no"):
+        return "off"
+    return "extensive" if permissive else None
+
+
 class TelegramAdapter(BasePlatformAdapter):
     """
     Telegram bot adapter.
@@ -2870,28 +2889,32 @@ class TelegramAdapter(BasePlatformAdapter):
 
     # ── Message reactions (processing lifecycle) ──────────────────────────
 
-    def _reactions_enabled(self) -> bool:
-        """Check if message reactions are enabled via config/env."""
-        return os.getenv("TELEGRAM_REACTIONS", "false").lower() not in ("false", "0", "no")
+    def _reaction_level(self) -> str:
+        """Return the effective Telegram reaction level."""
+        level = _parse_telegram_reaction_level(os.getenv("TELEGRAM_REACTION_LEVEL"))
+        if level is None:
+            level = _parse_telegram_reaction_level(os.getenv("TELEGRAM_REACTIONS"), permissive=True)
+        return level or "off"
 
-    async def _set_reaction(self, chat_id: str, message_id: str, emoji: str) -> bool:
-        """Set a single emoji reaction on a Telegram message."""
+    async def _set_reaction(self, chat_id: str, message_id: str, emoji: Optional[str] = None) -> bool:
+        """Set or clear a single reaction on a Telegram message."""
         if not self._bot:
             return False
         try:
+            reaction = [] if emoji is None else emoji
             await self._bot.set_message_reaction(
                 chat_id=int(chat_id),
                 message_id=int(message_id),
-                reaction=emoji,
+                reaction=reaction,
             )
             return True
         except Exception as e:
-            logger.debug("[%s] set_message_reaction failed (%s): %s", self.name, emoji, e)
+            logger.debug("[%s] set_message_reaction failed (%s): %s", self.name, reaction, e)
             return False
 
     async def on_processing_start(self, event: MessageEvent) -> None:
-        """Add an in-progress reaction when message processing begins."""
-        if not self._reactions_enabled():
+        """Add an in-progress reaction when ack reactions are enabled."""
+        if self._reaction_level() != "ack":
             return
         chat_id = getattr(event.source, "chat_id", None)
         message_id = getattr(event, "message_id", None)
@@ -2904,13 +2927,21 @@ class TelegramAdapter(BasePlatformAdapter):
         Unlike Discord (additive reactions), Telegram's set_message_reaction
         replaces all existing reactions in one call — no remove step needed.
         """
-        if not self._reactions_enabled():
-            return
         chat_id = getattr(event.source, "chat_id", None)
         message_id = getattr(event, "message_id", None)
-        if chat_id and message_id and outcome != ProcessingOutcome.CANCELLED:
-            await self._set_reaction(
-                chat_id,
-                message_id,
-                "\U0001f44d" if outcome == ProcessingOutcome.SUCCESS else "\U0001f44e",
-            )
+        if not chat_id or not message_id or outcome == ProcessingOutcome.CANCELLED:
+            return
+
+        level = self._reaction_level()
+        if level == "ack":
+            await self._set_reaction(chat_id, message_id)
+            return
+
+        if level not in ("minimal", "extensive"):
+            return
+
+        await self._set_reaction(
+            chat_id,
+            message_id,
+            "\U0001f44d" if outcome == ProcessingOutcome.SUCCESS else "\U0001f44e",
+        )

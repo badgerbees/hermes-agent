@@ -710,6 +710,7 @@ DEFAULT_CONFIG = {
 
     # Telegram platform settings (gateway mode)
     "telegram": {
+        "reaction_level": "minimal",    # Lifecycle reactions: off, ack, minimal, or extensive
         "channel_prompts": {},         # Per-chat/topic ephemeral system prompts (topics inherit from parent group)
     },
 
@@ -778,7 +779,7 @@ DEFAULT_CONFIG = {
     },
 
     # Config schema version - bump this when adding new required fields
-    "_config_version": 18,
+    "_config_version": 19,
 }
 
 # =============================================================================
